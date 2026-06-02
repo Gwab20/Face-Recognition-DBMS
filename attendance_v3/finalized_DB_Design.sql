@@ -1,6 +1,4 @@
---  STUDENT RECORD SYSTEM
---  Face-ID based attendance + student record management
---  Password for all seed accounts: password123
+--  STUDENT RECORD SYSTEM 
 
 --  DROP EXISTING TABLES 
 DROP TABLE IF EXISTS face_recognition_log CASCADE;
@@ -275,6 +273,8 @@ INSERT INTO attendance (student_id, course_id, attendance_date, status, marked_b
 (1, 2, '2025-02-13', 'present', 1, 'face_id', '11:02:00'),
 (2, 2, '2025-02-13', 'present', 1, 'face_id', '11:01:00'),
 (3, 2, '2025-02-13', 'absent',  1, 'manual',  NULL);
+
+
 
 
 SELECT * FROM users;

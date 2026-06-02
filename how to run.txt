@@ -1,0 +1,8 @@
+open the directory with attendence_v3
+open postgres( edit the credintials in pg_db.py )
+run the following one by one:
+pip install -r requirements.txt
+python main_gui.py
+
+to log in as a teacher just go through finalized_DB_Design 
+every user has the same password as of now, that being : password123

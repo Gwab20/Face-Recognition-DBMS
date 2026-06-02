@@ -18,8 +18,20 @@ STUDENTS = {
 
 
 #  MARK ATTENDANCE (POSTGRES)
-def mark_attendance(name, date, course_id, teacher_id, log_callback):
+def mark_attendance(name, date, course_id, teacher_id, log_callback, confidence=0.0):
     if name not in STUDENTS:
+        # Log unknown/failed scan
+        try:
+            conn = connect_pg()
+            cur  = get_cursor(conn)
+            cur.execute(
+                "INSERT INTO face_recognition_log (confidence, success) VALUES (%s, FALSE)",
+                (round(min(max(confidence, 0.0), 1.0), 4),)
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
         return
 
     roll_no, full_name = STUDENTS[name]
@@ -28,7 +40,6 @@ def mark_attendance(name, date, course_id, teacher_id, log_callback):
         conn = connect_pg()
         cur = get_cursor(conn)
 
-        # get student_id from roll number
         cur.execute(
             "SELECT student_id FROM students WHERE roll_number = %s",
             (roll_no,)
@@ -41,7 +52,6 @@ def mark_attendance(name, date, course_id, teacher_id, log_callback):
 
         student_id = result["student_id"]
 
-        # insert or update attendance
         cur.execute("""
             INSERT INTO attendance
                 (student_id, course_id, attendance_date,
@@ -49,11 +59,28 @@ def mark_attendance(name, date, course_id, teacher_id, log_callback):
             VALUES (%s, %s, %s, 'present', %s, 'face_id', CURRENT_TIME)
             ON CONFLICT (student_id, course_id, attendance_date)
             DO UPDATE SET
-                status = 'present',
-                marked_via = 'face_id',
-                marked_by = EXCLUDED.marked_by,
+                status        = 'present',
+                marked_via    = 'face_id',
+                marked_by     = EXCLUDED.marked_by,
                 check_in_time = CURRENT_TIME
+            RETURNING attendance_id
         """, (student_id, course_id, date, teacher_id))
+
+        row = cur.fetchone()
+        attendance_id = row["attendance_id"] if row else None
+
+        # Log to face_recognition_log
+        cur.execute("""
+            INSERT INTO face_recognition_log
+                (student_id, attendance_id, confidence, success)
+            VALUES (%s, %s, %s, TRUE)
+        """, (student_id, attendance_id, round(min(max(confidence, 0.0), 1.0), 4)))
+
+        # Log to access_log
+        cur.execute("""
+            INSERT INTO access_log (user_id, action, target_type, target_id)
+            VALUES (%s, 'face_id_attendance', 'attendance', %s)
+        """, (teacher_id, attendance_id))
 
         conn.commit()
         conn.close()
@@ -89,7 +116,7 @@ def run_yolo(selected_date, course_id, teacher_id, log_callback):
 
                 confidence = float(box.conf[0])
 
-                #  CONFIDENCE FILTER
+                # 🔥 CONFIDENCE FILTER
                 if confidence < CONF_THRESHOLD:
                     continue
 
@@ -102,14 +129,15 @@ def run_yolo(selected_date, course_id, teacher_id, log_callback):
 
                 elapsed = current_time - detection_buffer[name]
 
-                #  DELAY LOGIC
+                # 🔥 DELAY LOGIC
                 if elapsed >= DELAY_SECONDS:
                     mark_attendance(
                         name,
                         selected_date,
                         course_id,
                         teacher_id,
-                        log_callback
+                        log_callback,
+                        confidence=confidence
                     )
 
                     log_callback(

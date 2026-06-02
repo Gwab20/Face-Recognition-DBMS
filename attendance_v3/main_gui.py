@@ -5,7 +5,7 @@ from tkinter import messagebox, ttk
 import customtkinter as ctk
 import bcrypt
 
-from pg_db import connect_pg, get_cursor
+from pg_db import connect_pg, get_cursor, log_access
 from yolo_runner import run_yolo
 
 #  Theme constants
@@ -228,6 +228,16 @@ class LoginApp(ctk.CTk):
             return
 
         user_id = row["user_id"]
+
+        # Log the login event
+        try:
+            _lconn = connect_pg()
+            log_access(_lconn, user_id, f"login_{role}")
+            _lconn.commit()
+            _lconn.close()
+        except Exception:
+            pass
+
         self.destroy()
 
         if role == "teacher":
@@ -349,6 +359,7 @@ class TeacherDashboard(ctk.CTk):
         ctk.CTkFrame(self._content, fg_color=BORDER,
                      height=1).pack(fill="x", padx=32, pady=8)
 
+    
     #  PAGE: Dashboard overview
     def _page_dashboard(self):
         # Scrollable so nothing gets cut off on smaller screens
@@ -919,7 +930,7 @@ class TeacherDashboard(ctk.CTk):
             ctk.CTkLabel(leg, text=label, font=FONT_SMALL,
                          text_color=TEXT_SEC).pack(side="left", padx=(0, 6))
 
-        # ── Grid area ────────────────────────────────────────────────────────
+        # ── Grid area 
         self._att_tree_frame = ctk.CTkFrame(self._content, fg_color="transparent")
         self._att_tree_frame.pack(fill="both", expand=True, padx=32, pady=4)
 
@@ -963,7 +974,7 @@ class TeacherDashboard(ctk.CTk):
                              font=FONT_BODY, text_color=TEXT_SEC).pack(pady=40)
                 return
 
-            # ── Pivot: student → date → record ───────────────────────────────
+            # ── Pivot: student → date → record 
             import collections
             # ordered list of unique dates (ascending) and students (by roll)
             dates    = sorted(set(str(r["attendance_date"]) for r in rows))
@@ -980,7 +991,7 @@ class TeacherDashboard(ctk.CTk):
             for r in rows:
                 cell_data[(r["student_id"], str(r["attendance_date"]))] = dict(r)
 
-            # ── Layout constants ──────────────────────────────────────────────
+            # ── Layout constants 
             ROW_H      = 36
             NAME_W     = 220   # student name column
             ROLL_W     = 90    # roll number column
@@ -991,7 +1002,7 @@ class TeacherDashboard(ctk.CTk):
             total_w = ROLL_W + NAME_W + len(dates) * (CELL_W + PAD) + 20
             total_h = HEADER_H + len(students) * (ROW_H + PAD) + 20
 
-            # ── Scrollable canvas container ───────────────────────────────────
+            # ── Scrollable canvas container 
             import tkinter as tk
             canvas_outer = tk.Frame(self._att_tree_frame, bg="#0f1117")
             canvas_outer.pack(fill="both", expand=True)
@@ -1198,7 +1209,7 @@ class TeacherDashboard(ctk.CTk):
         cols_outer = ctk.CTkFrame(self._content, fg_color="transparent")
         cols_outer.pack(fill="both", expand=True, padx=32, pady=8)
 
-        # ── Manual form (left) ───────────────
+        # ── Manual form (left) 
         left = card(cols_outer)
         left.pack(side="left", fill="both", expand=True, padx=(0, 8))
         lp = ctk.CTkFrame(left, fg_color="transparent")
@@ -1250,7 +1261,12 @@ class TeacherDashboard(ctk.CTk):
                                   marked_via = 'manual',
                                   remarks    = EXCLUDED.remarks,
                                   marked_by  = EXCLUDED.marked_by
+                    RETURNING attendance_id
                 """, (sid, cid, date, status, self.user_id, remarks))
+                att_row = cur.fetchone()
+                att_id  = att_row["attendance_id"] if att_row else None
+                log_access(conn, self.user_id, "manual_attendance",
+                           "attendance", att_id)
                 conn.commit()
                 conn.close()
                 show_info("Attendance recorded successfully.")
@@ -1259,7 +1275,7 @@ class TeacherDashboard(ctk.CTk):
 
         styled_button(lp, "💾  Save Record", save_manual, width=280).pack(pady=(12, 0))
 
-        # ── Face-ID panel (right) ────────────
+        # ── Face-ID panel (right) ───────────
         right = card(cols_outer)
         right.pack(side="left", fill="both", expand=True, padx=(8, 0))
         rp = ctk.CTkFrame(right, fg_color="transparent")
@@ -1571,6 +1587,8 @@ class TeacherDashboard(ctk.CTk):
                         marked_by  = %s
                     WHERE attendance_id = %s
                 """, (new_status, new_remarks, self.user_id, att_id))
+                log_access(conn, self.user_id, "edit_attendance",
+                           "attendance", att_id)
                 conn.commit()
                 conn.close()
                 show_info("Attendance updated successfully.")
@@ -1639,6 +1657,7 @@ class TeacherDashboard(ctk.CTk):
                         updated_at = CURRENT_TIMESTAMP
                     WHERE mark_id = %s
                 """, (new_score, new_remarks, self.user_id, mark_id))
+                log_access(conn, self.user_id, "edit_mark", "marks", mark_id)
                 conn.commit()
                 conn.close()
                 show_info("Mark updated successfully.")
@@ -1654,8 +1673,7 @@ class TeacherDashboard(ctk.CTk):
                       color="#2d3148", width=100).pack(side="left", padx=(12, 0))
 
 
-
-#  Student Portal 
+#  Student Portal (read-only)
 
 class StudentPortal(ctk.CTk):
     def __init__(self, user_id: int, email: str):
@@ -1743,7 +1761,7 @@ class StudentPortal(ctk.CTk):
         pct_str = f"{pct_val*100:.1f}%" if total else "—"
         bar_color = SUCCESS if pct_val >= 0.75 else (WARNING if pct_val >= 0.5 else DANGER)
 
-        # ── Summary cards ─────────────────────────────────────────────────
+        # ── Summary cards 
         summary = card(parent)
         summary.pack(fill="x", padx=20, pady=(14, 8))
         sp = ctk.CTkFrame(summary, fg_color="transparent")
@@ -1777,7 +1795,7 @@ class StudentPortal(ctk.CTk):
                          font=FONT_BODY, text_color=TEXT_SEC).pack(pady=30)
             return
 
-        # ── Per-course color grid ─────────────────────────────────────────
+        # ── Per-course color grid 
         # Group by course
         courses_seen = []
         course_map: dict = {}
